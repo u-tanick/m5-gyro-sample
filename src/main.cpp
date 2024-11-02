@@ -9,18 +9,19 @@ Kalman kalmanY;
 float gyroX, gyroY, gyroZ;
 float accX, accY, accZ;
 
-float angleX, angleY;
-float gyroRateX, gyroRateY;
+float angleX, angleZ;
+float gyroRateX, gyroRateZ;
 unsigned long lastUpdate;
 
 float filteredAngleX;
-float filteredAngleY;
+float filteredAngleZ;
 
 float originAngleX = 0.0;
 float originAngleY = 0.0;
+float originAngleZ = 0.0;
 
 float relativeAngleX;
-float relativeAngleY;
+float relativeAngleZ;
 
 void calculateAngle() {
   // 時間経過を取得
@@ -30,30 +31,38 @@ void calculateAngle() {
 
   // 加速度から角度を計算
   angleX = atan2(accY, accZ) * 180 / PI;
-  angleY = atan2(accX, accZ) * 180 / PI;
+  angleZ = atan2(accX, accZ) * 180 / PI;
 
   // ジャイロデータを使って角速度を取得
   gyroRateX = gyroX; // ジャイロの出力がdeg/sであることを前提
-  gyroRateY = gyroY;
+  gyroRateZ = gyroY;
 
   // カルマンフィルターを使って角度を更新
   // オフセット値を加算することでボタンを押した時点を原点とした数値に補正
   filteredAngleX = kalmanX.getAngle(angleX, gyroRateX, dt);
-  filteredAngleY = kalmanY.getAngle(angleY, gyroRateY, dt);
+  filteredAngleZ = kalmanY.getAngle(angleZ, gyroRateZ, dt);
 }
 
 void resetOrigin() {
     // 原点を引いて相対角度を算出
     relativeAngleX = filteredAngleX - originAngleX;
-    relativeAngleY = filteredAngleY - originAngleY;
+    relativeAngleZ = filteredAngleZ - originAngleZ;
 }
 
+
+const uint8_t pin1 = 33;  // M5StickC
+const uint8_t pin2 = 32;  // M5StickC
+
 void setup() {
+
   // M5StickC Plusの初期化
   auto cfg = M5.config();
   cfg.internal_imu = true;  // 内蔵IMUを有効化
   M5.begin(cfg);
   M5.Imu.init();
+  
+  pinMode(pin1, INPUT);
+  pinMode(pin2, INPUT);
   
   // 画面の設定
   M5.Lcd.begin();
@@ -65,7 +74,16 @@ void setup() {
   lastUpdate = millis();
 }
 
+int last_value1 = 0;
+int last_value2 = 0;
+
+int cur_value1 = 0;
+int cur_value2 = 0;
+
 void loop() {
+
+  // --------------------------------------------------------------
+  // カルマンフィルタによるジャイロからのX軸、Z軸の
 
   // ジャイロデータを取得
   M5.Imu.getGyroData(&gyroX, &gyroY, &gyroZ);
@@ -82,23 +100,56 @@ void loop() {
     M5.Speaker.tone(1500, 100);
     // ボタンを押した時点の角度を原点として扱うために取得
     originAngleX = filteredAngleX;
-    originAngleY = filteredAngleY;
+    originAngleZ = filteredAngleZ;
   }
 
   // ボタンを押した時点の originAngleX, originAngleY を使用して原点をリセット
   resetOrigin();
 
-  // 縦置きで前後回転方向
-  M5.Lcd.setCursor(0, 20);
-  M5.Lcd.printf("Angle X: %d\n", int(filteredAngleX));
-  M5.Lcd.setCursor(0, 40);
-  M5.Lcd.printf("Angle X: %d\n", int(relativeAngleX));
+  // // 縦置きで前後回転（ジャイロから計算）
+  // M5.Lcd.setCursor(0, 20);
+  // M5.Lcd.printf("Angle X: %d\n", int(filteredAngleX));
+  // M5.Lcd.setCursor(0, 40);
+  // M5.Lcd.printf("Angle X: %d\n", int(relativeAngleX));
 
-  // 縦置きで左右回転方向
-  M5.Lcd.setCursor(0, 70);
-  M5.Lcd.printf("Angle Y: %d\n", int(filteredAngleY));
-  M5.Lcd.setCursor(0, 90);
-  M5.Lcd.printf("Angle Y: %d\n", int(relativeAngleY));
+  // // 縦置きで左右に傾ける（ジャイロから計算）
+  // M5.Lcd.setCursor(0, 70);
+  // M5.Lcd.printf("Angle Z: %d\n", int(filteredAngleZ));
+  // M5.Lcd.setCursor(0, 90);
+  // M5.Lcd.printf("Angle Z: %d\n", int(relativeAngleZ));
+
+  // // 縦置きで左右に水平に回転（地磁気から計算）
+  // TODO
+
+  // M5.Lcd.printf("Angle Z: %d\n", int(relativeAngleZ));
+  // M5.Lcd.printf("Angle Z: %d\n", int(relativeAngleZ));
+
+  // --------------------------------------------------------------
+  // デュアルボタン
+  cur_value1 = digitalRead(33);
+  cur_value2 = digitalRead(32);
+
+  if (cur_value1 != last_value1) {
+      if (cur_value1 == 0) {
+          M5.Lcd.setCursor(40, 25);
+          M5.Lcd.print("Blue");
+      } else {
+          M5.Lcd.setCursor(40, 25);
+          M5.Lcd.print("1");
+      }
+      last_value1 = cur_value1;
+  }
+  if (cur_value2 != last_value2) {
+      M5.Lcd.fillRect(70, 25, 45, 40, BLACK);
+      if (cur_value2 == 0) {
+          M5.Lcd.setCursor(80, 25);
+          M5.Lcd.print("Red");
+      } else {
+          M5.Lcd.setCursor(80, 25);
+          M5.Lcd.print("1");
+      }
+      last_value2 = cur_value2;
+  }
 
   M5.update(); // ボタンの状態を更新
   delay(10);
