@@ -1,1 +1,1 @@
-# m5stick-c-plus-gyro
+# m5-gyro-sample
