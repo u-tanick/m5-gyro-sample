@@ -1,1 +1,1 @@
-# m5-gyro-sample
+# m5-gyro-client
