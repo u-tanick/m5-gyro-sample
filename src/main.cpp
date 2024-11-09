@@ -1,21 +1,23 @@
 #include <M5Unified.h>
 #include <Kalman.h>
 #include <SensorFusion.h>
-#include <esp_now.h>
-#include <WiFi.h>
 
-#if defined(ARDUINO_M5STACK_Core2) // Core2の場合
-u_int8_t ROTATE = 1;
-u_int8_t FONT_SIZE = 3;
-u_int8_t LEFT_OFFSET_POS = 10;
-u_int8_t LABEL_POS = 15;
-u_int8_t PARAM_POS = 50;
-#elif defined(ARDUINO_M5Stick_C_PLUS) // M5StickC Plusの場合
-u_int8_t ROTATE = 3;
-u_int8_t FONT_SIZE = 2;
-u_int8_t LEFT_OFFSET_POS = 10;
-u_int8_t LABEL_POS = 10;
-u_int8_t PARAM_POS = 40;
+// #define ARDUINO_M5STACK_Core2
+#define ARDUINO_M5Stick_C_PLUS
+
+#ifdef ARDUINO_M5STACK_Core2
+  u_int8_t ROTATE = 1;
+  u_int8_t FONT_SIZE = 3;
+  u_int8_t LEFT_OFFSET_POS = 10;
+  u_int8_t LABEL_POS = 15;
+  u_int8_t PARAM_POS = 50;
+#endif
+#ifdef ARDUINO_M5Stick_C_PLUS
+  u_int8_t ROTATE = 3;
+  u_int8_t FONT_SIZE = 2;
+  u_int8_t LEFT_OFFSET_POS = 10;
+  u_int8_t LABEL_POS = 10;
+  u_int8_t PARAM_POS = 20;
 #endif
 
 // ---------------------------------------------
@@ -71,8 +73,7 @@ int cur_value1 = 0;
 int cur_value2 = 0;
 
 // ---------------------------------------------
-// データ送信用変数
-bool SEND_DATA = false;
+// ジャイロ情報補正用関数
 
 /**
  * カルマンフィルターを用いた角度計算
@@ -106,68 +107,6 @@ void resetOrigin()
   relativeAngleZ = angleZ - originAngleZ;
 }
 
-// 受信機のMACアドレスをセットする
-uint8_t slaveAddress[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-
-/**
- * 送信完了時の処理実行用コールバック関数
- * 不要な場合は削除してよい
- */
-void onSend(const uint8_t *mac_addr, esp_now_send_status_t status)
-{
-  char macStr[18];
-  snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
-           mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5]);
-
-  M5.Lcd.fillScreen(BLACK);
-  M5.Lcd.setTextSize(2);
-  M5.Lcd.setCursor(5, 10);
-  M5.Lcd.println(macStr);
-  M5.Lcd.println(status == ESP_NOW_SEND_SUCCESS ? "Success" : "Failed");
-}
-
-/**
- * 送信データセット用関数
- */
-void espNowSendData(float sendX, float sendZ)
-{
-  // 送信データ
-  // uint8_t data[2] = { (int)sendX, (int)sendZ };
-  // テスト送信データ
-  uint8_t data[2] = { 111, 222 };
-
-  // データ送信
-  esp_err_t result = esp_now_send(slaveAddress, data, sizeof(data));
-
-  // 送信結果
-  Serial.print("Send Status: ");
-  switch (result)
-  {
-  case ESP_OK:
-      Serial.println("Success");
-      break;
-  case ESP_ERR_ESPNOW_NOT_INIT:
-      Serial.println("ESPNOW not Init.");
-      break;
-  case ESP_ERR_ESPNOW_ARG:
-      Serial.println("Invalid Argument");
-      break;
-  case ESP_ERR_ESPNOW_INTERNAL:
-      Serial.println("Internal Error");
-      break;
-  case ESP_ERR_ESPNOW_NO_MEM:
-      Serial.println("ESP_ERR_ESPNOW_NO_MEM");
-      break;
-  case ESP_ERR_ESPNOW_NOT_FOUND:
-      Serial.println("Peer not found.");
-      break;
-
-  default:
-      Serial.println("Not sure what happened");
-      break;
-  }
-}
-
 // ---------------------------------------------
 
 /**
@@ -178,27 +117,18 @@ void setup()
   // Z軸（yaw角ドリフト対策）
   stockedGyroZLength = sizeof(stockedGyroZs) / sizeof(int);
 
-  // M5StickC Plusの初期化
+  // M5の初期化
   auto cfg = M5.config();
   cfg.internal_imu = true; // 内蔵IMUを有効化
   M5.begin(cfg);
 
+  // IMUの初期化
   M5.Imu.init();
-
   Serial.println(" IMU initialised");
-
-  // Wifi通信設定
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-  if (esp_now_init() == ESP_OK)
-  {
-    Serial.println("ESPNow Init Success");
-  }
 
   // デュアルボタンのPIN情報設定
   pinMode(pin1, INPUT);
   pinMode(pin2, INPUT);
-
   Serial.println(" Dual Button Setuped");
 
   // 画面の設定
@@ -210,19 +140,6 @@ void setup()
   M5.Lcd.setTextSize(FONT_SIZE);
 
   Serial.println(" LCD Setuped");
-
-  // ESPNow送信設定
-  esp_now_peer_info_t peerInfo;
-  memcpy(peerInfo.peer_addr, slaveAddress, 6);
-  peerInfo.channel = 0;
-  peerInfo.encrypt = false;
-  if (esp_now_add_peer(&peerInfo) != ESP_OK)
-  {
-    Serial.println("Failed to add peer");
-    return;
-  }
-  // 送信完了時の処理実行用コールバック関数をセット（不要な場合は削除してよい）
-  esp_now_register_send_cb(onSend);
 
   // 角度補正計算用タイマー取得
   lastUpdate = millis();
@@ -299,39 +216,23 @@ void loop()
     // Redボタン
     if (cur_value2 == 0)
     {
-      if (!SEND_DATA)
-      {
-        M5.Speaker.tone(1500, 200);
-        M5.Lcd.setCursor(LEFT_OFFSET_POS, LABEL_POS);
-        M5.Lcd.print("Reset Origin");
+      M5.Speaker.tone(1500, 200);
+      M5.Lcd.setCursor(LEFT_OFFSET_POS, LABEL_POS);
+      M5.Lcd.print("Reset Origin");
 
-        // ボタンを押した時点の角度を原点として扱うために取得
-        originAngleX = angleX;
-        originAngleY = angleY;
-        originAngleZ = angleZ;
-        // 通信開始のフラグを立てる
-        SEND_DATA = true;
-      } else {
-        // 二回押すとデータ送信をストップ
-        SEND_DATA = false;
-      }
+      // ボタンを押した時点の角度を原点として扱うために取得
+      originAngleX = angleX;
+      originAngleY = angleY;
+      originAngleZ = angleZ;
     }
-
     last_value2 = cur_value2;
   }
 
   // ボタンを押した時点の originAngleX, originAngleY を使用して原点をリセット
   resetOrigin();
 
-  // 送信フラグがONの場合、原点補正済みのX,Zの角度情報をESPNowでサーバー側に送信する
-  if (SEND_DATA)
-  {
-    espNowSendData(relativeAngleX, relativeAngleZ);
-  }
-
   // --------------------------------------------------------------
   // 画面表示
-
   // 前後に傾ける（ジャイロから計算）
   M5.Lcd.setCursor(LEFT_OFFSET_POS, PARAM_POS);
   M5.Lcd.printf("RAW   X: %d\n", int(angleX));
