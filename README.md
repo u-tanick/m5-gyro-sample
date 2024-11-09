@@ -1,4 +1,4 @@
-# m5-gyro-client
+# m5-gyro-sample
 
 
 #include <M5Unified.h>
